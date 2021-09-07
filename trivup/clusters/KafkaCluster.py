@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 
-# Copyright (c) 2016-2019, Magnus Edenhill
+# Copyright (c) 2016-2021, Magnus Edenhill
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@
 #  * KerberosKdcApp (optional, sasl.mechanism=GSSAPI,
 #                    cross-realm if realm_cnt=2)
 #  * SchemaRegistryApp (optional, if with_sr=True)
+#  * OauthbearerOIDCApp (optional, if oidc=True)
 #
 # cluster.env (dict) will contain:
 #      TRIVUP_ROOT
@@ -176,7 +177,7 @@ class KafkaCluster(object):
 
         # Start a HTTP server
         if bool(self.conf.get('oidc', False)):
-            self.sr = OauthbearerOIDCApp(self.cluster)
+            self.oidc = OauthbearerOIDCApp(self.cluster)
 
         # Create librdkafka client configuration
         self._setup_client_conf()
@@ -448,7 +449,6 @@ if __name__ == '__main__':
                         help='Existing Kafka source directory to use ' +
                         'instead of downloaded release. ' +
                         'Requires --version trunk.')
-
     parser.add_argument('--oidc', dest='oidc',
                         action='store_true',
                         default=KafkaCluster.default_conf['oidc'],

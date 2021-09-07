@@ -20,7 +20,6 @@ class WebServerHandler(BaseHTTPRequestHandler):
         -d "method=oidc,scope=test-scope"'
         self.wfile.write(message.encode())
         print (message)
-        return
 
     def do_POST(self):
         '''

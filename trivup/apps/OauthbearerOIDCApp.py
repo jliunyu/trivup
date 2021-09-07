@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 
-# Copyright (c) 2016-2019, Magnus Edenhill
+# Copyright (c) 2021, Magnus Edenhill
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,10 +34,10 @@ class OauthbearerOIDCApp (trivup.App):
     """ Oauth/OIDC app, trigger an http server"""
 
     def __init__(self, cluster, conf=None, on=None):
-        print ("JIng Liu started OauthbearerOIDCApp")
         """
-        @param cluster     Current cluster
-        @param on          Node name to run on
+        @param cluster     Current cluster.
+        @param conf        Configuration dict.
+        @param on          Node name to run on.
 
         """
         super(OauthbearerOIDCApp, self).__init__(cluster, conf=conf, on=on)
