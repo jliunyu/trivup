@@ -48,6 +48,7 @@
 #
 # See conf dict structure below.
 
+from trivup.apps.OauthbearerOIDCApp import OauthbearerOIDCApp
 from trivup.trivup import Cluster, Allocator, TcpPortAllocator
 from trivup.apps.ZookeeperApp import ZookeeperApp
 from trivup.apps.KafkaBrokerApp import KafkaBrokerApp
@@ -83,6 +84,7 @@ class KafkaCluster(object):
         'with_sr': False,
         # Debug trivup
         'debug': False,
+        'oidc': False,
         # Additional broker server.properties configuration
         # 'broker_conf': ['connections.max.idle.ms=1234', ..]
     }
@@ -171,6 +173,10 @@ class KafkaCluster(object):
             self.sr = SchemaRegistryApp(
                 self.cluster, {'version': self.conf.get('cp_version')})
             self.env['SR_URL'] = self.sr.get('url')
+
+        # Start a HTTP server
+        if bool(self.conf.get('oidc', False)):
+            self.sr = OauthbearerOIDCApp(self.cluster)
 
         # Create librdkafka client configuration
         self._setup_client_conf()
@@ -443,6 +449,11 @@ if __name__ == '__main__':
                         'instead of downloaded release. ' +
                         'Requires --version trunk.')
 
+    parser.add_argument('--oidc', dest='oidc',
+                        action='store_true',
+                        default=KafkaCluster.default_conf['oidc'],
+                        help='Start a HTTP server')
+
     args = parser.parse_args()
 
     conf = {'debug': args.debug,
@@ -453,7 +464,8 @@ if __name__ == '__main__':
             'with_ssl': args.ssl,
             'with_sr': args.sr,
             'broker_cnt': args.broker_cnt,
-            'kafka_path': args.kafka_src}
+            'kafka_path': args.kafka_src,
+            'oidc': args.oidc}
 
     kc = KafkaCluster(**conf)
 
