@@ -32,7 +32,6 @@ import os
 
 class OauthbearerOIDCApp (trivup.App):
     """ Oauth/OIDC app, trigger an http server"""
-
     def __init__(self, cluster, conf=None, on=None):
         """
         @param cluster     Current cluster.
@@ -41,7 +40,6 @@ class OauthbearerOIDCApp (trivup.App):
 
         """
         super(OauthbearerOIDCApp, self).__init__(cluster, conf=conf, on=on)
-
 
     def start_cmd(self):
         return 'python trivup/apps/OAuthbearerOIDCApp/HttpServer.py'
