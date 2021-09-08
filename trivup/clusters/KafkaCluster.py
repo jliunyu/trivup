@@ -49,13 +49,13 @@
 #
 # See conf dict structure below.
 
-from trivup.apps.OauthbearerOIDCApp import OauthbearerOIDCApp
 from trivup.trivup import Cluster, Allocator, TcpPortAllocator
 from trivup.apps.ZookeeperApp import ZookeeperApp
 from trivup.apps.KafkaBrokerApp import KafkaBrokerApp
 from trivup.apps.KerberosKdcApp import KerberosKdcApp
 from trivup.apps.SchemaRegistryApp import SchemaRegistryApp
 from trivup.apps.SslApp import SslApp
+from trivup.apps.OauthbearerOIDCApp import OauthbearerOIDCApp
 
 from copy import deepcopy
 
@@ -452,7 +452,7 @@ if __name__ == '__main__':
     parser.add_argument('--oidc', dest='oidc',
                         action='store_true',
                         default=KafkaCluster.default_conf['oidc'],
-                        help='Start a HTTP server')
+                        help='Enable Oauthbearer OIDC JWT server')
 
     args = parser.parse_args()
 
