@@ -30,6 +30,8 @@ from trivup import trivup
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import jwt
 import datetime
+from threading import Thread
+import json
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -43,24 +45,22 @@ class WebServerHandler(BaseHTTPRequestHandler):
         --url localhost:8000/retrieve \
         -H "accept: application/json" \
         -H "authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "cache-control: no-cache" \
         -H "content-type: application/x-www-form-urlencoded" \
         -d "method=oidc,scope=test-scope"'
         self.wfile.write(message.encode())
         print (message)
 
     def do_POST(self):
-        '''
+        """
         Example usage:
         curl \
         -X POST \
         --url localhost:8000/retrieve \
         -H "accept: application/json" \
         -H "authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "cache-control: no-cache" \
         -H "content-type: application/x-www-form-urlencoded" \
         -d "method=oidc,scope=test-scope"
-        '''
+        """
         if not self.path.endswith("/retrieve"):
             self.send_error(404, 'URL is not valid: %s' % self.path)
             return
@@ -81,20 +81,23 @@ class WebServerHandler(BaseHTTPRequestHandler):
         }
 
         if post_data is None:
-            self.send_error(404, 'method and scope fields are required in data')
+            self.send_error(404,
+                            'method and scope fields are required in data')
 
         payloads = {"exp": datetime.datetime.utcnow() + \
                            datetime.timedelta(seconds=30)}
 
         encoded_jwt = jwt.encode(payloads, "secret", algorithm="HS256",
-                                     headers={"kid": self.headers['authorization']})
+                                 headers={"kid":
+                                          self.headers['authorization']})
         self.send_response(200)
         self.send_header('Content-type', 'text')
         self.end_headers()
-        self.wfile.write(encoded_jwt.encode())
+        messages = {"access_token": encoded_jwt}
+        self.wfile.write(json.dumps(messages, indent = 4).encode())
 
 class OauthbearerOIDCApp (trivup.App):
-    """ Oauth/OIDC app, trigger an http server"""
+    """ Oauth/OIDC app, trigger an http server """
     def __init__(self, cluster, conf=None, on=None):
         """
         @param cluster     Current cluster.
@@ -103,20 +106,21 @@ class OauthbearerOIDCApp (trivup.App):
                            (optional). A (random) free port will be chosen
                            otherwise.
         @param on          Node name to run on.
-
         """
         super(OauthbearerOIDCApp, self).__init__(cluster, conf=conf, on=on)
         self.conf['port'] = trivup.TcpPortAllocator(self.cluster).next(
             self, port_base=self.conf.get('port', None))
 
     def start_cmd(self):
-        try:
-            server = HTTPServer(('', self.conf['port']), WebServerHandler)
-            print ("Web Server running on port %s" % self.conf['port'])
-            server.serve_forever()
-        except KeyboardInterrupt:
-            print (" ^C entered, stopping web server....")
-            server.socket.close()
+        server = HTTPServer(('', self.conf['port']), WebServerHandler)
+        print("Web Server running on port %s" % self.conf['port'])
+        thread = Thread(target=server.serve_forever, args=())
+        """
+        Set as a daemon so it will be killed once the main thread
+        is dead.
+        """
+        thread.setDaemon(True)
+        thread.start()
 
     def operational(self):
         pass
