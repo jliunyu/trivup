@@ -104,7 +104,8 @@ class OauthbearerOIDCHttpServer():
         thread.start()
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description= 'Trivup Oauthbearer OIDC htter server')
+    parser = argparse.ArgumentParser(description= 'Trivup Oauthbearer OIDC \
+                                                   htter server')
     parser.add_argument('--port', type=int, dest='port',
                         default=False,
                         help='Port at which OauthbearerOIDCApp \
