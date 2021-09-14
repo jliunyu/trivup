@@ -33,6 +33,7 @@ import datetime
 import json
 import argparse
 from threading import Thread
+import requests
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -128,12 +129,21 @@ class OauthbearerOIDCApp (trivup.App):
         super(OauthbearerOIDCApp, self).__init__(cluster, conf=conf, on=on)
         self.conf['port'] = trivup.TcpPortAllocator(self.cluster).next(
             self, port_base=self.conf.get('port', None))
+        self.conf['url'] = 'http://localhost:%d' % self.conf['port']
 
     def start_cmd(self):
         return "python -m trivup.apps.OauthbearerOIDCApp --port %s" % self.conf['port']
 
     def operational(self):
-        return True
+        self.dbg('Checking if %s is operational' % self.get('url'))
+        try:
+            r = requests.get(self.get('url'))
+            if r.status_code == 200:
+                return True
+            raise Exception('status_code %d' % r.status_code)
+        except Exception as e:
+            self.dbg('%s check failed: %s' % (self.get('url'), e))
+            return False
 
     def deploy(self):
         pass
