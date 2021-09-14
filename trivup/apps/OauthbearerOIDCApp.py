@@ -30,8 +30,9 @@ from trivup import trivup
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import jwt
 import datetime
-from threading import Thread
 import json
+import argparse
+from threading import Thread
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -96,6 +97,22 @@ class WebServerHandler(BaseHTTPRequestHandler):
         messages = {"access_token": encoded_jwt}
         self.wfile.write(json.dumps(messages, indent = 4).encode())
 
+class OauthbearerOIDCHttpServer():
+    def enable_http_server(self, port):
+        server = HTTPServer(('', port), WebServerHandler)
+        thread = Thread(target=server.serve_forever, args=())
+        thread.start()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description= 'Trivup Oauthbearer OIDC htter server')
+    parser.add_argument('--port', type=int, dest='port',
+                        default=False,
+                        help='Port at which OauthbearerOIDCApp \
+                              should be bound')
+    args = parser.parse_args()
+    http_server = OauthbearerOIDCHttpServer()
+    http_server.enable_http_server(args.port)
+
 class OauthbearerOIDCApp (trivup.App):
     """ Oauth/OIDC app, trigger an http server """
     def __init__(self, cluster, conf=None, on=None):
@@ -112,18 +129,10 @@ class OauthbearerOIDCApp (trivup.App):
             self, port_base=self.conf.get('port', None))
 
     def start_cmd(self):
-        server = HTTPServer(('', self.conf['port']), WebServerHandler)
-        print("Web Server running on port %s" % self.conf['port'])
-        thread = Thread(target=server.serve_forever, args=())
-        """
-        Set as a daemon so it will be killed once the main thread
-        is dead.
-        """
-        thread.setDaemon(True)
-        thread.start()
+        return "python -m trivup.apps.OauthbearerOIDCApp --port %s" % self.conf['port']
 
     def operational(self):
-        pass
+        return True
 
     def deploy(self):
         pass
