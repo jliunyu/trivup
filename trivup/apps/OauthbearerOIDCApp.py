@@ -32,8 +32,9 @@ import jwt
 import datetime
 import json
 import argparse
-from threading import Thread
 import requests
+from Crypto.PublicKey import RSA
+
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -45,78 +46,111 @@ class WebServerHandler(BaseHTTPRequestHandler):
         message += 'curl \
         -X POST \
         --url localhost:8000/retrieve \
-        -H "accept: application/json" \
-        -H "authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "content-type: application/x-www-form-urlencoded" \
+        -H "Accept: application/json" \
+        -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
+        -H "Cache-Control: no-cache" \
         -d "method=oidc,scope=test-scope"'
         self.wfile.write(message.encode())
-        print (message)
+        print(message)
 
-    def do_POST(self):
+    def generate_token(self, payloads, authorization):
+        pass
+
+    def generate_valid_token_for_client(self):
         """
         Example usage:
         curl \
         -X POST \
         --url localhost:8000/retrieve \
-        -H "accept: application/json" \
-        -H "authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "content-type: application/x-www-form-urlencoded" \
+        -H "Accept: application/json" \
+        -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
+        -H "Cache-Control: no-cache" \
         -d "method=oidc,scope=test-scope"
         """
-        if not self.path.endswith("/retrieve"):
-            self.send_error(404, 'URL is not valid: %s' % self.path)
-            return
-
-        if self.headers.get('Content-Length', None) is None: {
+        if self.headers.get('Content-Length', None) is None:
             self.send_error(404, 'Content-Length field is required')
-        }
+            return
 
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
 
-        if self.headers.get('Content-Type', None) is None: {
-            self.send_error(404, 'Content-Type field is required')
-        }
+        if self.headers.get('Cache-Control', None) != "no-cache":
+            self.send_error(404, 'Cache-Control should be "no-cache"')
+            return
 
-        if self.headers.get('Authorization', None) is None: {
+        if self.headers.get('Authorization', None) is None:
             self.send_error(404, 'Authorization field is required')
-        }
+            return
+
+        if self.headers.get('Accept', None) != "application/json":
+            self.send_error(404, 'Accept field should be "application/json"')
+            return
 
         if post_data is None:
             self.send_error(404,
                             'method and scope fields are required in data')
+            return
 
-        payloads = {"exp": datetime.datetime.utcnow() + \
-                           datetime.timedelta(seconds=30)}
+        payloads = {"exp": datetime.datetime.utcnow() +
+                    datetime.timedelta(seconds=300)}
 
-        encoded_jwt = jwt.encode(payloads, "secret", algorithm="HS256",
-                                 headers={"kid":
-                                          self.headers['authorization']})
+        encoded_jwt = jwt.encode(payloads,
+                                 self.headers['authorization'],
+                                 algorithm="HS256")
         self.send_response(200)
         self.send_header('Content-type', 'text')
         self.end_headers()
         messages = {"access_token": encoded_jwt}
-        self.wfile.write(json.dumps(messages, indent = 4).encode())
+        self.wfile.write(json.dumps(messages, indent=4).encode())
+
+    def response_to_broker(self):
+        new_key = RSA.generate(2048, e=65537)
+        public_key = new_key.publickey().exportKey("PEM")
+
+        self.send_response(200)
+        self.send_header('Content-type', 'text')
+        self.end_headers()
+        self.wfile.write(public_key.encode())
+
+    def generate_badformat_token_for_client(self):
+        pass
+
+    def generate_unverifiable_token_for_client(self):
+        pass
+
+    def do_POST(self):
+        if self.path.endswith("/retrieve"):
+            self.generate_valid_token_for_client()
+        elif self.path.endswith("/keys"):
+            self.response_to_broker()
+        elif self.path.endswith("/retrieve/badformat"):
+            self.generate_badformat_token_for_client()
+        elif self.path.endswith("/retrieve/unverifiable"):
+            self.generate_unverifiable_token_for_client()
+        else:
+            self.send_error(404, 'URL is not valid: %s' % self.path)
+
 
 class OauthbearerOIDCHttpServer():
-    def enable_http_server(self, port):
+    def run_http_server(self, port):
         server = HTTPServer(('', port), WebServerHandler)
-        thread = Thread(target=server.serve_forever, args=())
-        thread.start()
+        server.serve_forever()
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description= 'Trivup Oauthbearer OIDC \
-                                                   htter server')
+    parser = argparse.ArgumentParser(description='Trivup Oauthbearer OIDC \
+                                                  HTTP server')
     parser.add_argument('--port', type=int, dest='port',
-                        default=False,
+                        default=False, required=True,
                         help='Port at which OauthbearerOIDCApp \
                               should be bound')
     args = parser.parse_args()
     http_server = OauthbearerOIDCHttpServer()
-    http_server.enable_http_server(args.port)
+    http_server.run_http_server(args.port)
+
 
 class OauthbearerOIDCApp (trivup.App):
-    """ Oauth/OIDC app, trigger an http server """
+    """ Oauth/OIDC app, run a http server """
     def __init__(self, cluster, conf=None, on=None):
         """
         @param cluster     Current cluster.
@@ -132,7 +166,8 @@ class OauthbearerOIDCApp (trivup.App):
         self.conf['url'] = 'http://localhost:%d' % self.conf['port']
 
     def start_cmd(self):
-        return "python -m trivup.apps.OauthbearerOIDCApp --port %s" % self.conf['port']
+        return "python -m trivup.apps.OauthbearerOIDCApp --port %d" \
+               % self.conf['port']
 
     def operational(self):
         self.dbg('Checking if %s is operational' % self.get('url'))
