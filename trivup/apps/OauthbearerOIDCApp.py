@@ -35,6 +35,8 @@ import argparse
 import requests
 from Crypto.PublicKey import RSA
 
+public_keys = []
+
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -52,9 +54,6 @@ class WebServerHandler(BaseHTTPRequestHandler):
         -d "method=oidc,scope=test-scope"'
         self.wfile.write(message.encode())
         print(message)
-
-    def generate_token(self, payloads, authorization):
-        pass
 
     def generate_valid_token_for_client(self):
         """
@@ -91,12 +90,17 @@ class WebServerHandler(BaseHTTPRequestHandler):
                             'method and scope fields are required in data')
             return
 
+        new_key = RSA.generate(2048, e=65537)
+        public_key = new_key.publickey().exportKey("PEM")
+        private_key = new_key.exportKey("PEM")
+
+        public_keys.append(public_key)
         payloads = {"exp": datetime.datetime.utcnow() +
                     datetime.timedelta(seconds=300)}
 
-        encoded_jwt = jwt.encode(payloads,
-                                 self.headers['authorization'],
-                                 algorithm="HS256")
+        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
+                                 headers={"kid":
+                                          self.headers['Authorization']})
         self.send_response(200)
         self.send_header('Content-type', 'text')
         self.end_headers()
@@ -104,19 +108,52 @@ class WebServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(messages, indent=4).encode())
 
     def response_to_broker(self):
-        new_key = RSA.generate(2048, e=65537)
-        public_key = new_key.publickey().exportKey("PEM")
-
         self.send_response(200)
         self.send_header('Content-type', 'text')
         self.end_headers()
-        self.wfile.write(public_key.encode())
+
+        keys = {"public_keys": public_keys}
+        self.wfile.write(json.dumps(keys, indent=4).encode())
 
     def generate_badformat_token_for_client(self):
-        pass
+        new_key = RSA.generate(2048, e=65537)
+        public_key = new_key.publickey().exportKey("PEM")
+        private_key = new_key.exportKey("PEM")
+        public_keys.append(public_key)
+
+        payloads = {"exp": datetime.datetime.utcnow() +
+                    datetime.timedelta(seconds=300)}
+
+        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
+                                 headers={"kid":
+                                          self.headers['Authorization']})
+        self.send_response(200)
+        self.send_header('Content-type', 'text')
+        self.end_headers()
+        messages = {"access_token": encoded_jwt + 'invalid'}
+        self.wfile.write(json.dumps(messages, indent=4).encode())
 
     def generate_unverifiable_token_for_client(self):
-        pass
+        new_key = RSA.generate(2048, e=65537)
+        private_key = new_key.exportKey("PEM")
+
+        """
+        Don't add the public key to the public key list,
+        so broker can't verify the token.
+        """
+        # public_keys.append(public_key)
+
+        payloads = {"exp": datetime.datetime.utcnow() +
+                    datetime.timedelta(seconds=300)}
+
+        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
+                                 headers={"kid":
+                                          self.headers['Authorization']})
+        self.send_response(200)
+        self.send_header('Content-type', 'text')
+        self.end_headers()
+        messages = {"access_token": encoded_jwt}
+        self.wfile.write(json.dumps(messages, indent=4).encode())
 
     def do_POST(self):
         if self.path.endswith("/retrieve"):
