@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 
 # Copyright (c) 2021, Magnus Edenhill
@@ -26,34 +26,88 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from base64 import encode
 from trivup import trivup
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import jwt
-import datetime
+
+import jwcrypto
+from jwcrypto import jwk
+import python_jwt as jwt
+from datetime import datetime, timedelta
+
 import json
 import argparse
 import requests
 from Crypto.PublicKey import RSA
 
 public_keys = []
+token = None
+key = None
 
+def generate_token(lifetime, valid=True):
+    global token
+
+    private_pem = key.export_to_pem(private_key=True, password=None)
+    print(type(private_pem))
+    private_key = jwk.JWK.from_pem(private_pem)
+
+    print(type(private_key))
+    
+    payload = {
+        'exp': datetime.utcnow() + timedelta(days=0, seconds=lifetime),
+        'iat': datetime.utcnow(),
+        'iss': "issuer",
+        'sub': "subject",
+        'aud': 'api://default'
+    }
+    header = {
+        "kid":"abcdefg"
+    }
+
+    token = jwt.generate_jwt(payload, private_key, 'RS256', timedelta(seconds=lifetime), other_headers=header)
+    if not valid:
+        token += "invalid"
+
+    print("token:", token)
+    token = {"access_token": "%s" % token}
+
+def generate_public_key():
+    global key
+    key = jwk.JWK.generate(kty='RSA', size=2048, alg='RS256', use='sig', kid="abcdefg")
+    public_key = key.export_public()
+
+    print("pub key type", type(public_key))
+    p = json.loads(public_key)
+    print("p type", type(p))
+    public_keys.append(json.loads(public_key))
+    print("public keys: ", public_keys)
 
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if not self.path.endswith("/keys"):
+            self.response_to_broker()        
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            message = "HTTP server for OAuth\n"
+            message += "Example for token retrieval:\n"
+            message += 'curl \
+            -X POST \
+            --url localhost:8000/retrieve \
+            -H "Accept: application/json" \
+            -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
+            -d "grant_type=client_credentials,scope=test-scope"'
+            self.wfile.write(message.encode())
+            print(message)
+        
         self.send_response(200)
-        self.send_header('Content-type', 'text')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        message = "HTTP server for OAuth\n"
-        message += "Example for token retrieval:\n"
-        message += 'curl \
-        -X POST \
-        --url localhost:8000/retrieve \
-        -H "Accept: application/json" \
-        -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "Cache-Control: no-cache" \
-        -d "method=oidc,scope=test-scope"'
-        self.wfile.write(message.encode())
-        print(message)
+
+        keys = {"keys": public_keys}
+        print(keys)
+        #self.wfile.write(json.dumps(keys, indent=4).encode())
+        self.wfile.write(json.dumps(keys, indent=4).encode())
 
     def generate_valid_token_for_client(self):
         """
@@ -63,19 +117,16 @@ class WebServerHandler(BaseHTTPRequestHandler):
         --url localhost:8000/retrieve \
         -H "Accept: application/json" \
         -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
-        -H "Cache-Control: no-cache" \
-        -d "method=oidc,scope=test-scope"
+        -d "grant_type=client_credentials,scope=test-scope"
         """
+        global token
+
         if self.headers.get('Content-Length', None) is None:
             self.send_error(404, 'Content-Length field is required')
             return
 
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
-
-        if self.headers.get('Cache-Control', None) != "no-cache":
-            self.send_error(404, 'Cache-Control should be "no-cache"')
-            return
 
         if self.headers.get('Authorization', None) is None:
             self.send_error(404, 'Authorization field is required')
@@ -87,83 +138,50 @@ class WebServerHandler(BaseHTTPRequestHandler):
 
         if post_data is None:
             self.send_error(404,
-                            'method and scope fields are required in data')
+                            'grant_type=client_credentials and scope \
+                             fields are required in data')
             return
 
-        new_key = RSA.generate(2048, e=65537)
-        public_key = new_key.publickey().exportKey("PEM")
-        private_key = new_key.exportKey("PEM")
+        print("Jing Liu content-type", self.headers.get('Content-type', None))
 
-        public_keys.append(public_key)
-        payloads = {"exp": datetime.datetime.utcnow() +
-                    datetime.timedelta(seconds=300)}
-
-        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
-                                 headers={"kid":
-                                          self.headers['Authorization']})
         self.send_response(200)
-        self.send_header('Content-type', 'text')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        messages = {"access_token": encoded_jwt}
-        self.wfile.write(json.dumps(messages, indent=4).encode())
+        generate_token(30)
+        self.wfile.write(json.dumps(token, indent=4).encode())
 
     def response_to_broker(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
 
-        keys = {"public_keys": public_keys}
+        keys = {"keys": public_keys}
         self.wfile.write(json.dumps(keys, indent=4).encode())
 
     def generate_badformat_token_for_client(self):
-        new_key = RSA.generate(2048, e=65537)
-        public_key = new_key.publickey().exportKey("PEM")
-        private_key = new_key.exportKey("PEM")
-        public_keys.append(public_key)
-
-        payloads = {"exp": datetime.datetime.utcnow() +
-                    datetime.timedelta(seconds=300)}
-
-        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
-                                 headers={"kid":
-                                          self.headers['Authorization']})
         self.send_response(200)
-        self.send_header('Content-type', 'text')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        messages = {"access_token": encoded_jwt + 'invalid'}
-        self.wfile.write(json.dumps(messages, indent=4).encode())
 
-    def generate_unverifiable_token_for_client(self):
-        new_key = RSA.generate(2048, e=65537)
-        private_key = new_key.exportKey("PEM")
+        generate_token(30, False)
+        self.wfile.write(json.dumps(token, indent=4).encode())
 
-        """
-        Don't add the public key to the public key list,
-        so broker can't verify the token.
-        """
-        # public_keys.append(public_key)
 
-        payloads = {"exp": datetime.datetime.utcnow() +
-                    datetime.timedelta(seconds=300)}
-
-        encoded_jwt = jwt.encode(payloads, private_key, algorithm="HS256",
-                                 headers={"kid":
-                                          self.headers['Authorization']})
+    def generate_expired_token_for_client(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        messages = {"access_token": encoded_jwt}
-        self.wfile.write(json.dumps(messages, indent=4).encode())
+
+        generate_token(-1)
+        self.wfile.write(json.dumps(token, indent=4).encode())
 
     def do_POST(self):
         if self.path.endswith("/retrieve"):
             self.generate_valid_token_for_client()
-        elif self.path.endswith("/keys"):
-            self.response_to_broker()
         elif self.path.endswith("/retrieve/badformat"):
             self.generate_badformat_token_for_client()
-        elif self.path.endswith("/retrieve/unverifiable"):
-            self.generate_unverifiable_token_for_client()
+        elif self.path.endswith("/retrieve/expire"):
+            self.generate_expired_token_for_client()
         else:
             self.send_error(404, 'URL is not valid: %s' % self.path)
 
@@ -182,6 +200,8 @@ if __name__ == '__main__':
                         help='Port at which OauthbearerOIDCApp \
                               should be bound')
     args = parser.parse_args()
+
+    generate_public_key()
     http_server = OauthbearerOIDCHttpServer()
     http_server.run_http_server(args.port)
 
@@ -200,21 +220,28 @@ class OauthbearerOIDCApp (trivup.App):
         super(OauthbearerOIDCApp, self).__init__(cluster, conf=conf, on=on)
         self.conf['port'] = trivup.TcpPortAllocator(self.cluster).next(
             self, port_base=self.conf.get('port', None))
-        self.conf['url'] = 'http://localhost:%d' % self.conf['port']
+        self.conf['valid_url'] = 'http://localhost:%d/retrieve' % self.conf['port']
+        self.conf['badformat_url'] = 'http://localhost:%d/retrieve/badformat' % self.conf['port']
+        self.conf['expired_url'] = 'http://localhost:%d/retrieve/expire' % self.conf['port']
+        self.conf['jwks_url'] = 'http://localhost:%d/keys' % self.conf['port']
+        print("Jing Liu trivup side url", self.conf['valid_url'])
+        print("Jing Liu trivup jwks_url url", self.conf['jwks_url'])
+        #self.env['OAUTH_OIDC_URL'] = self.conf['valid_url']
 
     def start_cmd(self):
-        return "python -m trivup.apps.OauthbearerOIDCApp --port %d" \
+        print("Jing Liu start")
+        return "python3 -m trivup.apps.OauthbearerOIDCApp --port %d" \
                % self.conf['port']
 
     def operational(self):
-        self.dbg('Checking if %s is operational' % self.get('url'))
+        self.dbg('Checking if %s is operational' % self.get('valid_url'))
         try:
-            r = requests.get(self.get('url'))
+            r = requests.get(self.get('valid_url'))
             if r.status_code == 200:
                 return True
             raise Exception('status_code %d' % r.status_code)
         except Exception as e:
-            self.dbg('%s check failed: %s' % (self.get('url'), e))
+            self.dbg('%s check failed: %s' % (self.get('valid_url'), e))
             return False
 
     def deploy(self):

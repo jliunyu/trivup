@@ -52,6 +52,9 @@ class ZookeeperApp (trivup.App):
             self, port_base=self.conf.get('zk_port', None))
         self.conf['datadir'] = self.create_dir('datadir')
         self.conf['address'] = '%(nodename)s:%(port)d' % self.conf
+        #self.conf['authProvider.1'] = 'org.apache.zookeeper.server.auth.DigestAuthenticationProvider'
+        #self.conf['jaasLoginRenew'] = 3600000
+        #self.conf['requireClientAuthScheme'] = 'SASl_PLAINTEXT'
         # Generate config file
         self.conf['conf_file'] = self.create_file_from_template('zookeeper.properties', self.conf)  # noqa: E501
 

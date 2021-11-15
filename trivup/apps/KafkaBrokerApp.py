@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 
 # Copyright (c) 2016-2019, Magnus Edenhill
@@ -29,6 +29,7 @@
 from trivup import trivup
 from trivup.apps.KerberosKdcApp import KerberosKdcApp
 from trivup.apps.SslApp import SslApp
+from trivup.apps.OauthbearerOIDCApp import OauthbearerOIDCApp
 
 from string import Template
 import contextlib
@@ -201,6 +202,7 @@ class KafkaBrokerApp (trivup.App):
         advertised_listeners = ['%s://%s:%d' %
                                 (x[0], self.conf['advertised_hostname'], x[1])
                                 for x in ports if x[0] != 'CONTROLLER']
+
         if can_docker:
             # Expose service to docker containers as well.
             advertised_listeners.append('DOCKER://%s' % docker_host)
@@ -208,6 +210,8 @@ class KafkaBrokerApp (trivup.App):
                 docker_host
         self.conf['advertised.listeners'] = ','.join(advertised_listeners)
         self.conf['advertised_listeners'] = self.conf['advertised.listeners']
+        #self.conf['listeners'] = self.conf['advertised_listeners']
+        print("Jing Liu advertised_listeners",  self.conf['advertised_listeners'])
         if self.kraft:
             self.conf['controller_listener'] = \
                 [x for x in listeners if x.startswith('CONTROLLER://')][0]
@@ -217,12 +221,12 @@ class KafkaBrokerApp (trivup.App):
         self.dbg('Listeners: %s' % self.conf['listeners'])
         self.dbg('Advertised Listeners: %s' %
                  self.conf['advertised.listeners'])
-
+        '''
         if not self.kraft:
             # SimpleAclAuthorizer doesn't work with KRaft, for some reason.
             # Will investigate later.
             conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')   # noqa: E501
-
+        '''
         if len(sasl_mechs) > 0:
             self.dbg('SASL mechanisms: %s' % sasl_mechs)
             jaas_blob.append('KafkaServer {')
@@ -280,7 +284,7 @@ class KafkaBrokerApp (trivup.App):
                     # hostname ("admin" rather than "admin/localhost")
                     # to a local user.
                     # This is not compatible with "admin/localhost" principals.
-                    conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
+                    #conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
                     conf_blob.append('allow.everyone.if.no.acl.found=true')
                     conf_blob.append('sasl.kerberos.principal.to.local.rules=RULE:[1:admin](.*)s/^.*/admin/')  # noqa: E501
 
@@ -302,16 +306,45 @@ class KafkaBrokerApp (trivup.App):
                 # Client should be configured with
                 # 'sasl.oauthbearer.config=scope=requiredScope principal=admin'
                 # Change requiredScope to something else to trigger auth error.
-                conf_blob.append('super.users=User:admin')
-                conf_blob.append('allow.everyone.if.no.acl.found=true')
-                conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
-                jaas_blob.append('org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required')  # noqa: E501
-                jaas_blob.append('  unsecuredLoginLifetimeSeconds="3600"')
-                jaas_blob.append('  unsecuredLoginStringClaim_sub="admin"')
-                jaas_blob.append('  unsecuredValidatorRequiredScope="requiredScope"')  # noqa: E501
-                jaas_blob.append(';')
+                #conf_blob.append('super.users=User:admin')
+                #conf_blob.append('allow.everyone.if.no.acl.found=true')
+                oidcapp = self.cluster.find_app(OauthbearerOIDCApp)
+                #if oidcapp is not None:
+                conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.server.callback.handler.class=org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler')
+
+                #conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.oauthbearer.jwks.endpoint.url=%s' % oidcapp.conf['jwks_url'])
+                conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.oauthbearer.jwks.endpoint.url=%s' % "http://localhost:8080/keys")
+                conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.oauthbearer.scope.claim.name=scp')
+                conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required unsecuredLoginStringClaim_sub="unused";')
+                conf_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.oauthbearer.expected.audience=api://default')                    #conf_blob.append('  unsecuredLoginStringClaim_sub="unused";')
+                conf_blob.append('security.inter.broker.protocol=PLAINTEXT')
+                #conf_blob.append('sasl.mechanism.inter.broker.protocol=OAUTHBEARER')
+                conf_blob.append('sasl.enabled.mechanisms=OAUTHBEARER')
+                #conf_blob.append('inter.broker.listener.name')
+
+                #conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
+                #jaas_blob.append('org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required')  # noqa: E501
+                #jaas_blob.append('  unsecuredLoginLifetimeSeconds="3600"')               
+                #jaas_blob.append('  unsecuredLoginStringClaim_sub="admin"')
+                #jaas_blob.append('  unsecuredValidatorRequiredScope="requiredScope"')  # noqa: E501
+                #jaas_blob.append(';')
+                jaas_blob.append('org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required unsecuredLoginStringClaim_sub="admin";')
+                #jaas_blob.append('  unsecuredLoginStringClaim_sub="admin";')
+                #jaas_blob.append(';')
+            jaas_blob.append('};\n')
+
+            jaas_blob.append('Client {')
+            if 'OAUTHBEARER' in sasl_mechs:
+                jaas_blob.append('org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required unsecuredLoginStringClaim_sub="admin";')
+                #jaas_blob.append('  unsecuredLoginStringClaim_sub="unused";')
+                #jaas_blob.append('listener.name.sasl_plaintext.oauthbearer.sasl.oauthbearer.expected.audience=api://default')
+                #jaas_blob.append('controlFlag=OPTIONAL')
+                #jaas_blob.append('security.protocol=SASL_PLAINTEXT')
+                #jaas_blob.append('sasl.mechanism=OAUTHBEARER')
+                #jaas_blob.append(';')
 
             jaas_blob.append('};\n')
+
             self.conf['jaas_file'] = self.create_file('jaas_broker.conf',
                                                       data='\n'.
                                                       join(jaas_blob))
