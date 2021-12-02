@@ -114,6 +114,10 @@ class KafkaCluster(object):
 
         self.sasl_mechanism = self.conf.get('sasl_mechanism')
 
+        # Start a HTTP server
+        if bool(self.conf.get('oidc', False)):
+            self.oidc = OauthbearerOIDCApp(self.cluster)
+
         # Generate SSL certs if enabled
         if bool(self.conf.get('with_ssl')):
             self.ssl = SslApp(self.cluster, self.conf)
@@ -175,10 +179,6 @@ class KafkaCluster(object):
                 self.cluster, {'version': self.conf.get('cp_version')})
             self.env['SR_URL'] = self.sr.get('url')
 
-        # Start a HTTP server
-        if bool(self.conf.get('oidc', False)):
-            self.oidc = OauthbearerOIDCApp(self.cluster)
-
         # Create librdkafka client configuration
         self._setup_client_conf()
 
@@ -232,9 +232,16 @@ class KafkaCluster(object):
                     break
 
             elif self.sasl_mechanism == 'OAUTHBEARER':
-                self._client_conf['enable.sasl.oauthbearer.unsecure.jwt'] = True  # noqa: E501
-                self._client_conf['sasl.oauthbearer.config'] = \
-                    'scope=requiredScope principal=admin'
+                if self.conf.get('sasl.oauthbearer.method', None) == 'OIDC':
+                    self._client_conf['sasl.oauthbearer.config'] = 'scope=requiredScope principal=admin'
+                    self._client_conf['sasl.oauthbearer.client.id'] = '0oa3tq39ol3OLrnQj4x7'
+                    self._client_conf['sasl.oauthbearer.client.secret'] = '6hL8Ck3nPByK4XVbTJpXsa_60PJ-Urap5mjRpBMl'
+                    self._client_conf['sasl.oauthbearer.scope'] = 'test'
+                    self._client_conf['sasl.oauthbearer.extensions'] = 'ExtensionworkloadIdentity=develC348S,Extensioncluster=lkc123' 
+                else:
+                    self._client_conf['enable.sasl.oauthbearer.unsecure.jwt'] = True  # noqa: E501
+                    self._client_conf['sasl.oauthbearer.config'] = \
+                        'scope=requiredScope principal=admin'
 
         # Client SSL configuration
         if self.ssl is not None:
