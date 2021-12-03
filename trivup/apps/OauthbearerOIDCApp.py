@@ -41,13 +41,8 @@ from Crypto.PublicKey import RSA
 public_keys = []
 
 def generate_token(lifetime, valid=True):
-    global token
-
     private_pem = key.export_to_pem(private_key=True, password=None)
-    print(type(private_pem))
     private_key = jwk.JWK.from_pem(private_pem)
-
-    print(type(private_key))
 
     payload = {
         'exp': datetime.utcnow() + timedelta(days=0, seconds=lifetime),
@@ -64,7 +59,8 @@ def generate_token(lifetime, valid=True):
     if not valid:
         token += "invalid"
 
-    token = {"access_token": "%s" % token}
+    token_map = {"access_token": "%s" % token}
+    return token_map
 
 def generate_public_key():
     global key
@@ -77,7 +73,6 @@ def generate_public_key():
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.path.endswith("/keys"):
-            self.response_to_broker()
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -91,6 +86,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
             -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
             -d "grant_type=client_credentials,scope=test-scope"'
             self.wfile.write(message.encode())
+            return
 
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
@@ -110,8 +106,6 @@ class WebServerHandler(BaseHTTPRequestHandler):
         -H "Authorization: Basic LW4gYWJjMTIzOlMzY3IzdCEK" \
         -d "grant_type=client_credentials,scope=test-scope"
         """
-        global token
-
         if self.headers.get('Content-Length', None) is None:
             self.send_error(404, 'Content-Length field is required')
             return
@@ -140,23 +134,16 @@ class WebServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
-        generate_token(30)
+        token = generate_token(4)
         self.wfile.write(json.dumps(token, indent=4).encode())
 
-    def response_to_broker(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-
-        keys = {"keys": public_keys}
-        self.wfile.write(json.dumps(keys, indent=4).encode())
 
     def generate_badformat_token_for_client(self):
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
-        generate_token(30, False)
+        token = generate_token(30, False)
         self.wfile.write(json.dumps(token, indent=4).encode())
 
 
@@ -165,7 +152,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
-        generate_token(-1)
+        token = generate_token(-1)
         self.wfile.write(json.dumps(token, indent=4).encode())
 
     def do_POST(self):

@@ -219,12 +219,11 @@ class KafkaBrokerApp (trivup.App):
         self.dbg('Advertised Listeners: %s' %
                  self.conf['advertised.listeners'])
 
-        '''
         if not self.kraft:
-            # SimpleAclAuthorizer doesn't work with KRaft, for some reason.
-            # Will investigate later.
-            conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')   # noqa: E501
-        '''
+            if self.version < [2, 4, 0]:
+                conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')   # noqa: E501
+            else:
+                conf_blob.append('authorizer.class.name=kafka.security.authorizer.AclAuthorizer')
 
         if len(sasl_mechs) > 0:
             self.dbg('SASL mechanisms: %s' % sasl_mechs)
@@ -283,7 +282,10 @@ class KafkaBrokerApp (trivup.App):
                     # hostname ("admin" rather than "admin/localhost")
                     # to a local user.
                     # This is not compatible with "admin/localhost" principals.
-                    conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
+                    if self.version < [2, 4, 0]:
+                        conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')   # noqa: E501
+                    else:
+                        conf_blob.append('authorizer.class.name=kafka.security.authorizer.AclAuthorizer')
                     conf_blob.append('allow.everyone.if.no.acl.found=true')
                     conf_blob.append('sasl.kerberos.principal.to.local.rules=RULE:[1:admin](.*)s/^.*/admin/')  # noqa: E501
 
@@ -318,7 +320,11 @@ class KafkaBrokerApp (trivup.App):
                     # Change requiredScope to something else to trigger auth error.
                     conf_blob.append('super.users=User:admin')
                     conf_blob.append('allow.everyone.if.no.acl.found=true')
-                    #conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')  # noqa: E501
+                    if self.version < [2, 4, 0]:
+                        conf_blob.append('authorizer.class.name=kafka.security.auth.SimpleAclAuthorizer')   # noqa: E501
+                    else:
+                        conf_blob.append('authorizer.class.name=kafka.security.authorizer.AclAuthorizer')
+
                     jaas_blob.append('org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required')  # noqa: E501
                     jaas_blob.append('  unsecuredLoginLifetimeSeconds="3600"')
                     jaas_blob.append('  unsecuredLoginStringClaim_sub="admin"')
