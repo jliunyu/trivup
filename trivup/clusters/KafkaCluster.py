@@ -224,6 +224,7 @@ class KafkaCluster(object):
         # Client SASL configuration
         if self.sasl_mechanism:
             self._client_conf['sasl.mechanism'] = self.sasl_mechanism
+
             if self.sasl_mechanism == 'PLAIN' or \
                self.sasl_mechanism.find('SCRAM') != -1:
                 # Use first user as SASL user/pass
